@@ -1,8 +1,33 @@
 const Redis = require('redis');
 const { withTimeout } = require('../lib/timeout');
 
+function buildRedisUrlFromEnv() {
+  const rawUrl = process.env.REDIS_URL;
+  const hasProtocol = typeof rawUrl === 'string' && rawUrl.includes('://');
+  if (rawUrl && hasProtocol) return rawUrl;
+
+  const tlsEnabled = String(process.env.REDIS_TLS || process.env.REDIS_SSL || '').toLowerCase() === 'true';
+  const scheme = (process.env.REDIS_SCHEME || (tlsEnabled ? 'rediss' : 'redis'));
+
+  if (rawUrl && !hasProtocol) {
+    return `${scheme}://${rawUrl}`;
+  }
+
+  const host = process.env.REDIS_HOST || 'localhost';
+  const port = process.env.REDIS_PORT || '6379';
+  const username = process.env.REDIS_USERNAME || process.env.REDIS_USER || (process.env.REDIS_PASSWORD ? 'default' : '');
+  const password = process.env.REDIS_PASSWORD || process.env.REDIS_PASS || '';
+  const auth = password ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@` : '';
+  return `${scheme}://${auth}${host}:${port}`;
+}
+
+const redisUrl = buildRedisUrlFromEnv();
 const redis = Redis.createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
+  url: redisUrl,
+  socket: { tls: redisUrl.startsWith('rediss://') }
+});
+redis.on('error', (err) => {
+  console.error('Redis error:', err?.message || err);
 });
 redis.connect().catch((err) => {
   console.error('Redis connect error:', err?.message || err);
