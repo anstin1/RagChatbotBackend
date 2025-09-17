@@ -84,10 +84,20 @@ app.post('/api/sessions', (req, res) => {
 
 app.get('/api/sessions/:sessionId/history', async (req, res) => {
   try {
-    const history = await getSessionHistory(req.params.sessionId);
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      return res.json({ history: [] });
+    }
+    const history = await getSessionHistory(sessionId);
     res.json({ history });
   } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch session history' });
+    console.error('Failed to fetch session history:', e?.message || e);
+    const nonProd = (process.env.NODE_ENV || 'development') !== 'production';
+    if (!REQUIRE_REDIS) {
+      // When Redis isn't required, don't fail the page; return empty history
+      return res.status(200).json({ history: [], ...(nonProd ? { details: e?.message || String(e) } : {}) });
+    }
+    res.status(500).json({ error: 'Failed to fetch session history', ...(nonProd ? { details: e?.message || String(e) } : {}) });
   }
 });
 
