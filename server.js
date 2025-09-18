@@ -113,11 +113,21 @@ app.delete('/api/sessions/:sessionId', async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { sessionId, message } = req.body;
-    if (!sessionId || !message) return res.status(400).json({ error: 'Session ID and message are required' });
+    if (!sessionId || !message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({ error: 'Session ID and message are required' });
+    }
 
     const overallTimeoutMs = 10000;
     const work = (async () => {
-      const history = await getSessionHistory(sessionId);
+      let history;
+      try {
+        history = await getSessionHistory(sessionId);
+        console.log('chat:history_loaded', { sessionId, messages: history.length });
+      } catch (err) {
+        console.error('chat:history_failed', err?.message || err);
+        throw new Error('history_failed');
+      }
+
       const userMessage = {
         id: uuidv4(),
         type: 'user',
@@ -126,8 +136,23 @@ app.post('/api/chat', async (req, res) => {
       };
       history.push(userMessage);
 
-      const passages = await retrievePassages(message);
-      const answer = await generateAnswer(message, passages);
+      let passages;
+      try {
+        passages = await retrievePassages(message);
+        console.log('chat:retrieval_ok', { sessionId, passages: passages.length });
+      } catch (err) {
+        console.error('chat:retrieval_failed', err?.message || err);
+        throw new Error('retrieval_failed');
+      }
+
+      let answer;
+      try {
+        answer = await generateAnswer(message, passages);
+        console.log('chat:llm_ok', { sessionId, answerChars: typeof answer === 'string' ? answer.length : 0 });
+      } catch (err) {
+        console.error('chat:llm_failed', err?.message || err);
+        throw new Error('llm_failed');
+      }
 
       const botMessage = {
         id: uuidv4(),
@@ -138,7 +163,14 @@ app.post('/api/chat', async (req, res) => {
       };
       history.push(botMessage);
 
-      await saveSessionHistory(sessionId, history);
+      try {
+        await saveSessionHistory(sessionId, history);
+        console.log('chat:history_saved', { sessionId, messages: history.length });
+      } catch (err) {
+        console.error('chat:save_failed', err?.message || err);
+        throw new Error('save_failed');
+      }
+
       return { response: answer, passages };
     })();
 
